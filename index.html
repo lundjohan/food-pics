@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Magloggen">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#f3f5f2">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<title>Magloggen</title>
+<style>
+:root{--bg:#f3f5f2;--card:#fff;--ink:#1b2a2f;--mute:#627076;--line:#dbe2de;--meal:#1f5f6b;--sym:#8b2f5c;--on:#fff;--chip:#e6ece9;color-scheme:light dark}
+@media(prefers-color-scheme:dark){:root{--bg:#0f1a1c;--card:#172325;--ink:#e7efee;--mute:#8fa3a6;--line:#263538;--meal:#6fc0cd;--sym:#e48ab5;--on:#0f1a1c;--chip:#223033}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font:16px/1.4 -apple-system,system-ui,sans-serif;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top)}
+header{padding:14px 18px 4px}
+h1{font:700 28px/1.1 ui-rounded,"SF Pro Rounded",-apple-system,system-ui,sans-serif;margin:0;letter-spacing:-.02em}
+header p{margin:3px 0 0;color:var(--mute);font-size:14px}
+main{flex:1;overflow:auto;padding:12px 16px 28px;-webkit-overflow-scrolling:touch}
+.view[hidden]{display:none}
+h2{font:700 18px/1.2 ui-rounded,-apple-system,system-ui,sans-serif;margin:0 0 12px}
+h3{font:600 15px/1.2 ui-rounded,-apple-system,system-ui,sans-serif;margin:22px 2px 8px;color:var(--mute)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+.card.m{border-left:5px solid var(--meal)}.card.s{border-left:5px solid var(--sym)}
+.card.form{border-top:5px solid var(--meal)}.card.form.s{border-top-color:var(--sym);border-left:1px solid var(--line)}
+input,textarea,select{width:100%;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:11px 12px;margin:0 0 10px}
+input[type=text],input[type=password],textarea{-webkit-appearance:none;appearance:none}
+input[type=datetime-local]{min-height:46px}
+button{font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 14px;min-height:44px}
+button.pri{width:100%;background:var(--meal);border-color:var(--meal);color:var(--on);font-weight:600}
+.s button.pri{background:var(--sym);border-color:var(--sym)}
+.photo{display:flex;align-items:center;justify-content:center;min-height:84px;margin-bottom:10px;border:2px dashed var(--meal);border-radius:12px;color:var(--meal);font-weight:600}
+#prev{display:block;width:100%;max-height:220px;object-fit:cover;border-radius:10px;margin-bottom:10px}
+#prev[hidden]{display:none}
+.chips,.segs,.row{display:flex;gap:8px}.chips{flex-wrap:wrap;margin-bottom:12px}.segs{margin-bottom:12px}.segs button,.row>*{flex:1}
+.chip{border-radius:999px;background:var(--chip);min-height:40px;padding:8px 14px}
+.chip.on,.segs .on{background:var(--sym);border-color:var(--sym);color:var(--on);font-weight:600}
+.meal{display:flex;gap:12px}.meal img{width:76px;height:76px;object-fit:cover;border-radius:10px;flex:none}
+.grow{flex:1;min-width:0}
+.t{font-weight:700;font-variant-numeric:tabular-nums}.m .t{color:var(--meal)}.s .t{color:var(--sym)}
+ul{margin:4px 0 8px;padding-left:18px}
+.tag{display:inline-block;font-size:12px;background:var(--chip);padding:3px 9px;border-radius:999px;margin:0 4px 4px 0}
+.hint{color:var(--mute);font-size:14px;margin:6px 0}
+.acts{display:flex;gap:4px;margin:6px -8px -8px}
+.link{border:0;background:none;color:var(--mute);min-height:34px;padding:4px 8px;font-size:14px}
+.empty{color:var(--mute);text-align:center;margin-top:40px}
+nav{display:flex;background:var(--card);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1;border:0;border-radius:0;background:none;color:var(--mute);min-height:54px}
+nav .on{color:var(--meal);font-weight:700;box-shadow:inset 0 3px 0 var(--meal)}
+#toast{position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 8px);transform:translate(-50%,-90px);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;font-size:14px;z-index:9;transition:transform .2s;max-width:90%}
+#toast.show{transform:translate(-50%,0)}
+</style>
+</head>
+<body>
+<header><h1>Magloggen</h1><p>Mat och mage på samma tidslinje</p></header>
+<div id="toast" role="status"></div>
+<main>
+<section id="v-log" class="view">
+  <div class="card form">
+    <h2>Ny måltid</h2>
+    <label class="photo" for="file">Ta bild eller välj bild</label>
+    <input type="file" id="file" accept="image/*" hidden>
+    <img id="prev" alt="" hidden>
+    <input type="text" id="mtext" placeholder="Beskriv måltiden (valfritt)" autocomplete="off">
+    <input type="datetime-local" id="mtime">
+    <button class="pri" id="saveMeal">Spara måltid</button>
+  </div>
+  <div class="card form s">
+    <h2>Hur mår magen?</h2>
+    <div class="chips" id="kinds"></div>
+    <div class="segs" id="sev"><button data-s="1">Lite</button><button data-s="2" class="on">Måttligt</button><button data-s="3">Mycket</button></div>
+    <input type="text" id="stext" placeholder="Notering (valfritt)" autocomplete="off">
+    <input type="datetime-local" id="stime">
+    <button class="pri" id="saveSym">Logga magen</button>
+  </div>
+</section>
+<section id="v-dag" class="view" hidden><div id="list"></div></section>
+<section id="v-mer" class="view" hidden>
+  <div class="card">
+    <h2>Exportera till Claude</h2>
+    <select id="per"><option value="7">Senaste 7 dagarna</option><option value="14" selected>Senaste 14 dagarna</option><option value="30">Senaste 30 dagarna</option><option value="0">Allt</option></select>
+    <div class="row"><button class="pri" id="exShare">Dela fil</button><button id="exCopy">Kopiera text</button></div>
+    <p class="hint">Dela filen till OneDrive eller mejl, eller ladda upp den i Claude-appen. Du kan också klistra in den kopierade texten i en chatt.</p>
+  </div>
+  <div class="card">
+    <h2>Inställningar</h2>
+    <input type="password" id="key" placeholder="Anthropic API-nyckel (sk-ant-…)" autocomplete="off">
+    <input type="text" id="model" placeholder="Modell" autocomplete="off">
+    <button class="pri" id="saveCfg">Spara inställningar</button>
+    <p class="hint">Nyckeln sparas bara i den här appen på telefonen. Vid analys skickas bild och text till Anthropics API. Sätt en utgiftsgräns i Anthropic Console.</p>
+  </div>
+</section>
+</main>
+<nav><button data-v="log" class="on">Logga</button><button data-v="dag">Dagbok</button><button data-v="mer">Mer</button></nav>
+<script>
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const DEF='claude-haiku-5-5';
+const cfg=()=>({key:localStorage.mk||'',model:localStorage.mm||DEF});
+const KINDS=['Gas','Uppblåst','Ont i magen','Kramp','Illamående','Sura uppstötningar','Lös mage','Hård mage','Mår bra'];
+const SYS=`Du hjälper en person som för mat- och magdagbok. Analysera måltiden (bild och/eller text). Svara ENDAST med JSON, utan kodstaket, på svenska:
+{"titel":"kort namn på rätten","ingredienser":[{"namn":"...","mangd":"ca 150 g"}],"taggar":[],"osakert":"kort om dolda eller osäkra ingredienser (olja, sås, kryddor, lök i röran) eller tom sträng"}
+Taggar väljs ENBART bland: lök, vitlök, baljväxter, kål, laktos, vete/gluten, fruktos, polyoler, sötningsmedel, kolsyra, fet mat, stark mat, alkohol, koffein, mycket fibrer. Mängder är grova uppskattningar. Om personens text motsäger bilden, lita på texten.`;
+
+/* lagring: IndexedDB */
+const dbp=new Promise((ok,no)=>{const r=indexedDB.open('magloggen',1);r.onupgradeneeded=()=>r.result.createObjectStore('ev',{keyPath:'id'});r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)});
+const tx=async(m,f)=>{const d=await dbp;return new Promise((ok,no)=>{const t=d.transaction('ev',m),q=f(t.objectStore('ev'));t.oncomplete=()=>ok(q&&q.result);t.onerror=()=>no(t.error)})};
+const put=e=>tx('readwrite',s=>s.put(e)),del=id=>tx('readwrite',s=>s.delete(id)),all=()=>tx('readonly',s=>s.getAll()),get=id=>tx('readonly',s=>s.get(id));
+
+/* tid */
+const pad=n=>String(n).padStart(2,'0');
+const nowLocal=()=>new Date(Date.now()-new Date().getTimezoneOffset()*6e4).toISOString().slice(0,16);
+const dkey=t=>{const d=new Date(t);return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())};
+const hm=t=>{const d=new Date(t);return pad(d.getHours())+':'+pad(d.getMinutes())};
+const dlabel=t=>new Date(t).toLocaleDateString('sv-SE',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+const setTimes=()=>{$('#mtime').value=$('#stime').value=nowLocal()};
+let tt;const toast=m=>{const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('show'),2800)};
+
+/* bild: förminska innan lagring och API-anrop */
+const shrink=f=>new Promise((ok,no)=>{const u=URL.createObjectURL(f),i=new Image();i.onload=()=>{const k=Math.min(1,1280/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=Math.round(i.width*k);c.height=Math.round(i.height*k);c.getContext('2d').drawImage(i,0,0,c.width,c.height);URL.revokeObjectURL(u);ok(c.toDataURL('image/jpeg',.8))};i.onerror=()=>no(new Error('Kunde inte läsa bilden'));i.src=u});
+
+/* AI-analys av måltid */
+async function analyze(id){
+  const e=await get(id);if(!e)return;
+  const {key,model}=cfg();
+  if(!key){toast('Lägg in API-nyckel under Mer');return}
+  e.st='pending';await put(e);render();
+  let upd;
+  try{
+    const c=[];
+    if(e.photo)c.push({type:'image',source:{type:'base64',media_type:'image/jpeg',data:e.photo.split(',')[1]}});
+    c.push({type:'text',text:'Måltid'+(e.text?': '+e.text:' (se bild)')+'. Klockan '+hm(e.ts)+'.'});
+    const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model,max_tokens:700,system:SYS,messages:[{role:'user',content:c}]})});
+    const j=await r.json();if(!r.ok)throw new Error(j.error&&j.error.message||'HTTP '+r.status);
+    const t=j.content.filter(b=>b.type==='text').map(b=>b.text).join('');
+    const a=JSON.parse(t.slice(t.indexOf('{'),t.lastIndexOf('}')+1));
+    upd={st:'done',err:'',a:{titel:a.titel||'',ing:(a.ingredienser||[]).map(x=>x.namn+(x.mangd?' – '+x.mangd:'')).join('\n'),tags:a.taggar||[],osakert:a.osakert||''}};
+  }catch(x){upd={st:'error',err:String(x.message||x)}}
+  const f=await get(id);if(f){Object.assign(f,upd);await put(f)}
+  render();
+}
+async function retry(){if(!cfg().key)return;for(const e of await all())if(e.type==='meal'&&!e.a&&e.st!=='pending')await analyze(e.id)}
+
+/* dagbok */
+let editing=null;
+const btn=(a,id,t)=>`<button class="link" data-act="${a}" data-id="${id}">${t}</button>`;
+const mealCard=e=>{
+  const a=e.a||{};let b;
+  if(editing===e.id)b=`<input type="text" id="et" value="${esc(a.titel||e.text||'')}" placeholder="Rätt"><textarea id="ei" rows="5" placeholder="En ingrediens per rad">${esc(a.ing||'')}</textarea><input type="text" id="eg" value="${esc((a.tags||[]).join(', '))}" placeholder="Taggar, kommaseparerade"><div class="row"><button class="pri" data-act="save" data-id="${e.id}">Spara</button><button data-act="cancel">Avbryt</button></div>`;
+  else if(e.st==='pending')b='<p class="hint">Analyserar…</p>';
+  else if(e.a)b=`<div><strong>${esc(a.titel||e.text)}</strong></div><ul>${(a.ing||'').split('\n').filter(Boolean).map(x=>`<li>${esc(x)}</li>`).join('')}</ul><div>${(a.tags||[]).map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div>${a.osakert?`<p class="hint">Osäkert: ${esc(a.osakert)}</p>`:''}`;
+  else b=`${e.text?`<p>${esc(e.text)}</p>`:''}<p class="hint">${e.st==='error'?'Analysen misslyckades: '+esc(e.err):'Inte analyserad ännu. Lägg in API-nyckel under Mer.'}</p>`;
+  const acts=editing===e.id?'':`<div class="acts">${e.a?btn('ed',e.id,'Ändra'):''}${e.st!=='pending'?btn('an',e.id,e.a?'Analysera om':'Analysera'):''}${btn('del',e.id,'Ta bort')}</div>`;
+  return `<div class="card m"><div class="meal">${e.photo?`<img src="${e.photo}" alt="">`:''}<div class="grow"><div class="t">${hm(e.ts)} Måltid</div>${e.text&&e.a?`<div class="hint">“${esc(e.text)}”</div>`:''}${b}</div></div>${acts}</div>`};
+const symCard=e=>`<div class="card s"><div class="t">${hm(e.ts)} Magen</div><div><strong>${esc(e.kinds.join(', '))}</strong> <span class="tag">styrka ${e.sev} av 3</span></div>${e.text?`<p class="hint">${esc(e.text)}</p>`:''}<div class="acts">${btn('del',e.id,'Ta bort')}</div></div>`;
+async function render(){
+  const ev=(await all()).sort((a,b)=>b.ts-a.ts),L=$('#list');
+  if(!ev.length){L.innerHTML='<p class="empty">Inget loggat än. Ta en bild på nästa måltid.</p>';return}
+  let h='',d='';
+  for(const e of ev){const k=dkey(e.ts);if(k!==d){d=k;h+=`<h3>${esc(dlabel(e.ts))}</h3>`}h+=e.type==='meal'?mealCard(e):symCard(e)}
+  L.innerHTML=h;
+}
+$('#list').onclick=async ev=>{
+  const b=ev.target.closest('[data-act]');if(!b)return;const id=b.dataset.id,a=b.dataset.act;
+  if(a==='del'){if(confirm('Ta bort posten?')){await del(id);render()}}
+  else if(a==='an')analyze(id);
+  else if(a==='ed'){editing=id;render()}
+  else if(a==='cancel'){editing=null;render()}
+  else if(a==='save'){const e=await get(id);e.a=Object.assign(e.a||{},{titel:$('#et').value.trim(),ing:$('#ei').value.trim(),tags:$('#eg').value.split(',').map(s=>s.trim()).filter(Boolean)});e.st='done';editing=null;await put(e);render()}
+};
+
+/* logga måltid */
+let pend=null;
+$('#file').onchange=async ev=>{const f=ev.target.files[0];if(!f)return;try{pend=await shrink(f);$('#prev').src=pend;$('#prev').hidden=false}catch(x){toast(x.message)}ev.target.value=''};
+$('#saveMeal').onclick=async()=>{
+  const text=$('#mtext').value.trim();if(!pend&&!text)return toast('Lägg till en bild eller en beskrivning');
+  const e={id:uid(),type:'meal',ts:new Date($('#mtime').value||Date.now()).getTime(),text,photo:pend,st:'none'};
+  await put(e);pend=null;$('#prev').hidden=true;$('#mtext').value='';setTimes();toast('Måltid sparad');render();analyze(e.id);
+};
+
+/* logga mage */
+$('#kinds').innerHTML=KINDS.map(k=>`<button class="chip">${k}</button>`).join('');
+$('#kinds').onclick=ev=>{const b=ev.target.closest('.chip');if(b)b.classList.toggle('on')};
+$('#sev').onclick=ev=>{const b=ev.target.closest('button');if(b)$$('#sev button').forEach(x=>x.classList.toggle('on',x===b))};
+$('#saveSym').onclick=async()=>{
+  const kinds=$$('#kinds .on').map(b=>b.textContent);if(!kinds.length)return toast('Välj minst en sak');
+  await put({id:uid(),type:'sym',ts:new Date($('#stime').value||Date.now()).getTime(),kinds,sev:+$('#sev .on').dataset.s,text:$('#stext').value.trim()});
+  $$('#kinds .on').forEach(b=>b.classList.remove('on'));$('#stext').value='';setTimes();toast('Magen loggad');render();
+};
+
+/* export */
+async function mkMd(days){
+  let ev=(await all()).sort((a,b)=>a.ts-b.ts);if(days)ev=ev.filter(e=>e.ts>=Date.now()-days*864e5);
+  if(!ev.length)return '';
+  let o=`# Mat- och magdagbok\nPeriod: ${dkey(ev[0].ts)} till ${dkey(ev[ev.length-1].ts)}\nTiderna är lokal tid. Symtom kan komma flera timmar efter en måltid, så titta på tidsfönster. Måltidsanalyserna är AI-gissningar från foto och text och kan missa dolda ingredienser och portionsstorlek.\n`;
+  let d='';
+  for(const e of ev){
+    const k=dkey(e.ts);if(k!==d){d=k;o+=`\n## ${dlabel(e.ts)}\n`}
+    if(e.type==='meal'){const a=e.a||{},ing=(a.ing||'').split('\n').filter(Boolean).join('; ');
+      o+=`- ${hm(e.ts)} MÅLTID: ${a.titel||e.text||'(ej analyserad)'}${ing?' — '+ing:''}${a.tags&&a.tags.length?' [taggar: '+a.tags.join(', ')+']':''}${e.text&&a.titel?' (egen text: '+e.text+')':''}${a.osakert?' (osäkert: '+a.osakert+')':''}\n`}
+    else o+=`- ${hm(e.ts)} MAGEN: ${e.kinds.join(', ')} (styrka ${e.sev}/3)${e.text?' — '+e.text:''}\n`;
+  }
+  return o;
+}
+$('#exShare').onclick=async()=>{
+  const md=await mkMd(+$('#per').value);if(!md)return toast('Inget att exportera');
+  const f=new File([md],'magdagbok-'+dkey(Date.now())+'.md',{type:'text/markdown'});
+  try{
+    if(navigator.canShare&&navigator.canShare({files:[f]}))await navigator.share({files:[f]});
+    else if(navigator.share)await navigator.share({text:md});
+    else{const a=document.createElement('a');a.href=URL.createObjectURL(f);a.download=f.name;a.click()}
+  }catch(x){if(x.name!=='AbortError')toast('Delning misslyckades. Prova Kopiera text.')}
+};
+$('#exCopy').onclick=async()=>{
+  try{
+    const p=mkMd(+$('#per').value).then(m=>{if(!m)throw 0;return new Blob([m],{type:'text/plain'})});
+    await navigator.clipboard.write([new ClipboardItem({'text/plain':p})]);toast('Kopierat');
+  }catch(x){toast('Inget att kopiera')}
+};
+
+/* inställningar, flikar, start */
+$('#saveCfg').onclick=()=>{localStorage.mk=$('#key').value.trim();localStorage.mm=$('#model').value.trim()||DEF;toast('Sparat');retry()};
+$('nav').onclick=ev=>{
+  const b=ev.target.closest('button');if(!b)return;
+  $$('nav button').forEach(x=>x.classList.toggle('on',x===b));
+  $$('.view').forEach(v=>v.hidden=v.id!=='v-'+b.dataset.v);
+  if(b.dataset.v==='log')setTimes();if(b.dataset.v==='dag')render();
+  $('main').scrollTop=0;
+};
+addEventListener('online',retry);
+(async()=>{
+  const c=cfg();$('#key').value=c.key;$('#model').value=c.model;setTimes();
+  for(const e of await all())if(e.st==='pending'){e.st='error';e.err='Avbröts';await put(e)}
+  render();
+  if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();
+  if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js');
+})();
+</script>
+</body>
+</html>
