@@ -39,6 +39,9 @@ button.pri{background:var(--meal);border-color:var(--meal);color:var(--on);font-
 .hint{color:var(--mute);font-size:14px;margin:6px 0 12px}
 code{word-break:break-all;background:var(--bg);padding:2px 5px;border-radius:6px}
 .link{border:0;background:none;color:var(--meal);min-height:28px;padding:2px 6px;font-weight:600}
+.it{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}.it:last-child{border:0}
+.grow{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+button:disabled{opacity:.45}
 nav{display:flex;background:var(--card);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
 nav button{flex:1;border:0;border-radius:0;background:none;color:var(--mute);min-height:54px}
 nav .on{color:var(--meal);font-weight:700;box-shadow:inset 0 3px 0 var(--meal)}
@@ -61,8 +64,18 @@ nav .on{color:var(--meal);font-weight:700;box-shadow:inset 0 3px 0 var(--meal)}
     <input type="datetime-local" id="mtime">
     <label class="lbl" for="mtxt">Måltidstext (korrigera vid behov)</label>
     <textarea id="mtxt" rows="10" placeholder="Analysen hamnar här. Du kan också skriva själv."></textarea>
-    <div class="row"><button id="again">Analysera igen</button><button class="pri" id="save">Spara i Drive</button></div>
+    <div class="row"><button id="again">Analysera igen</button><button id="save">Spara</button></div>
+    <button class="pri" id="saveSend" style="width:100%;margin-top:8px">Spara och mejla</button>
   </div>
+</section>
+<section id="v-snd" class="view" hidden>
+  <div class="card form">
+    <h2>Att mejla</h2>
+    <div id="unsent"></div>
+    <div class="row" style="margin-top:10px"><button class="pri" id="sendBtn">Mejla till mig</button><button id="copyBtn">Kopiera text</button></div>
+    <p class="hint">Mejlappen öppnas med allt färdigt. Tryck på Skicka där.</p>
+  </div>
+  <div class="card"><h2>Skickat de senaste 14 dagarna</h2><div id="sent"></div></div>
 </section>
 <section id="v-set" class="view" hidden>
   <div class="card">
@@ -71,25 +84,20 @@ nav .on{color:var(--meal);font-weight:700;box-shadow:inset 0 3px 0 var(--meal)}
     <input type="text" id="s-model" placeholder="Modell" autocomplete="off">
   </div>
   <div class="card">
-    <h2>Google Drive</h2>
-    <input type="text" id="s-cid" placeholder="Google Client ID" autocomplete="off">
-    <input type="text" id="s-folder" placeholder="Mapp i Drive (skapas om den saknas)" autocomplete="off">
-    <input type="text" id="s-file" placeholder="Loggfil" autocomplete="off">
-    <p class="hint">Redirect-URI att lägga till hos Google:<br><code id="ru"></code></p>
-    <div class="row"><button id="go">Logga in</button><button id="out">Logga ut</button></div>
+    <h2>Mejl</h2>
+    <input type="text" inputmode="email" autocapitalize="off" id="s-mail" placeholder="Din mejladress" autocomplete="off">
   </div>
   <button class="pri" id="saveCfg" style="width:100%">Spara inställningar</button>
-  <p class="hint">Inget av detta finns i koden på GitHub. Nycklar och inloggning sparas bara i telefonens lokala lagring. Bilder sparas inte, bara texten.</p>
+  <p class="hint">Inget av detta finns i koden på GitHub. Nyckel och adress sparas bara i telefonens lokala lagring. Bilder sparas inte, bara texten. Måltidstexter ligger kvar i telefonen i 14 dagar efter att de mejlats.</p>
 </section>
 </main>
-<nav><button data-v="log" class="on">Ny måltid</button><button data-v="set">Inställningar</button></nav>
+<nav><button data-v="log" class="on">Ny måltid</button><button data-v="snd">Skicka</button><button data-v="set">Inställningar</button></nav>
 <script>
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const DEF='claude-haiku-5-5',G='https://www.googleapis.com/';
 const REDIR=location.origin+location.pathname.replace(/[^/]*$/,'');
-const cfg=()=>({key:localStorage.mk||'',model:localStorage.mm||DEF,cid:localStorage.mc||'',folder:localStorage.mf||'Magloggen',file:localStorage.mn||'matlogg.txt'});
-const ob=()=>JSON.parse(localStorage.ob||'[]'),setOb=a=>localStorage.ob=JSON.stringify(a);
-const tokOk=()=>!!localStorage.gt&&Date.now()<+localStorage.gx;
+const cfg=()=>({key:localStorage.mk||'',model:localStorage.mm||DEF,mail:localStorage.ma||''});
+const lg=()=>JSON.parse(localStorage.lg||'[]'),setLg=a=>localStorage.lg=JSON.stringify(a);
 const pad=n=>String(n).padStart(2,'0');
 const toLocal=d=>new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,16);
 const dkey=t=>{const d=new Date(t);return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())};
@@ -155,93 +163,61 @@ $('#pic').onchange=async ev=>{
 };
 $('#again').onclick=analyze;
 
-/* Google-inloggning (redirect, bara drive.file = appens egna filer) */
-function startAuth(){
-  const cid=cfg().cid;if(!cid)return toast('Lägg in Google Client ID under Inställningar');
-  const st=uid()+uid();localStorage.gst=st;
-  location.href='https://accounts.google.com/o/oauth2/v2/auth?'+new URLSearchParams({client_id:cid,redirect_uri:REDIR,response_type:'token',scope:G+'auth/drive.file',state:st,include_granted_scopes:'true'});
-}
-$('#go').onclick=startAuth;
-$('#out').onclick=()=>{const t=localStorage.gt;localStorage.removeItem('gt');localStorage.gx=0;if(t)fetch('https://oauth2.googleapis.com/revoke?token='+t,{method:'POST'}).catch(()=>{});toast('Utloggad från Google');status()};
-
-/* Drive */
-async function gf(path,opt={}){
-  const r=await fetch(path.startsWith('http')?path:G+'drive/v3/'+path,{...opt,headers:{Authorization:'Bearer '+localStorage.gt,...(opt.headers||{})}});
-  if(r.status===401){localStorage.gx=0;throw Object.assign(new Error('Inloggningen har gått ut'),{code:401})}
-  if(!r.ok)throw Object.assign(new Error('Drive svarade '+r.status),{code:r.status});
-  return r;
-}
-async function ensure(name,folder,parent){
-  const q=`name='${name.replace(/\\/g,'\\\\').replace(/'/g,"\\'")}' and trashed=false and mimeType${folder?'=':'!='}'application/vnd.google-apps.folder'`+(parent?` and '${parent}' in parents`:'');
-  const l=await(await gf('files?fields=files(id)&q='+encodeURIComponent(q))).json();
-  if(l.files.length)return l.files[0].id;
-  const b={name,mimeType:folder?'application/vnd.google-apps.folder':'text/plain'};if(parent)b.parents=[parent];
-  return(await(await gf('files?fields=id',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)})).json()).id;
-}
-async function target(){
-  const c=cfg();let m=JSON.parse(localStorage.fi||'{}');
-  if(m.fo!==c.folder||m.fn!==c.file||!m.id){const fid=await ensure(c.folder,true);m={fo:c.folder,fn:c.file,id:await ensure(c.file,false,fid)};localStorage.fi=JSON.stringify(m)}
-  return m.id;
-}
+/* lista och mejl */
+const esc=t=>String(t).replace(/[&<>"']/g,c=>'&#'+c.charCodeAt(0)+';');
+const unsent=()=>lg().filter(e=>!e.sent);
+const markSent=()=>{const n=Date.now();setLg(lg().map(e=>e.sent?e:{...e,sent:n}));render()};
 const fmt=(ts,txt)=>{const [h,...r]=txt.trim().split('\n');return `- ${hm(ts)} MÅLTID: ${h.trim()}`+r.filter(l=>l.trim()).map(l=>'\n  '+l.trim()).join('')};
-function addTo(t,ts,line){
-  const day=dkey(ts),parts=(t||'# Matlogg\n\n').split(/^(?=## \d{4}-\d{2}-\d{2})/m);
-  const i=parts.findIndex((p,k)=>k&&p.startsWith('## '+day));
-  if(i>0){parts[i]=parts[i].trimEnd()+'\n'+line+'\n\n';return parts.join('')}
-  const s='## '+day+' ('+new Date(ts).toLocaleDateString('sv-SE',{weekday:'long'})+')\n'+line+'\n\n';
-  let at=parts.findIndex((p,k)=>k&&p.slice(3,13)>day);if(at<0)at=parts.length;
-  parts[at-1]=parts[at-1].trimEnd()+'\n\n';parts.splice(at,0,s);
-  return parts.join('');
+function mkText(es){
+  let o='',d='';
+  for(const e of [...es].sort((a,b)=>a.ts-b.ts)){const k=dkey(e.ts);if(k!==d){d=k;o+=(o?'\n':'')+'## '+k+' ('+new Date(e.ts).toLocaleDateString('sv-SE',{weekday:'long'})+')\n'}o+=fmt(e.ts,e.text)+'\n'}
+  return o;
 }
-let busy=false;
-async function flush(again=true){
-  const q=ob();if(!q.length||busy||!cfg().cid||!tokOk())return status();
-  busy=true;
-  try{
-    const id=await target();let t=await(await gf(`files/${id}?alt=media`)).text();
-    for(const e of q.sort((a,b)=>a.ts-b.ts))t=addTo(t,e.ts,fmt(e.ts,e.text));
-    await gf(`${G}upload/drive/v3/files/${id}?uploadType=media`,{method:'PATCH',headers:{'Content-Type':'text/plain; charset=UTF-8'},body:t});
-    setOb(ob().filter(e=>!q.some(s=>s.id===e.id)));toast('Sparad i Drive');
-  }catch(x){
-    if(x.code===404&&again){localStorage.removeItem('fi');busy=false;return flush(false)}
-    toast('Drive: '+x.message+'. Måltiden ligger kvar och skickas senare.');
-  }
-  busy=false;status();
+function render(){
+  const es=lg().sort((a,b)=>a.ts-b.ts),u=es.filter(e=>!e.sent),s=es.filter(e=>e.sent).reverse();
+  const row=(e,a,l)=>`<div class="it"><div class="grow"><strong>${dkey(e.ts)===dkey(Date.now())?'':dkey(e.ts)+' '}${hm(e.ts)}</strong> ${esc(e.text.split('\n')[0])}</div><button class="link" data-a="${a}" data-id="${e.id}">${l}</button></div>`;
+  $('#unsent').innerHTML=u.length?u.map(e=>row(e,'del','Ta bort')).join(''):'<p class="hint">Inget väntar. Nya måltider hamnar här.</p>';
+  $('#sent').innerHTML=s.length?s.map(e=>row(e,'re','Skicka igen')).join(''):'<p class="hint">Inget skickat ännu.</p>';
+  $('#sendBtn').textContent=u.length?`Mejla ${u.length} ${u.length>1?'måltider':'måltid'} till mig`:'Mejla till mig';
+  $('#sendBtn').disabled=$('#copyBtn').disabled=!u.length;
+  const el=$('#st');el.textContent=u.length?u.length+(u.length>1?' måltider väntar':' måltid väntar')+' på att mejlas.':'Allt är mejlat.';el.classList.toggle('warn',!!u.length);
 }
-
-/* spara */
-$('#save').onclick=()=>{
-  const text=$('#mtxt').value.trim();if(!text||text==='Analyserar…')return toast('Det finns ingen måltidstext att spara');
-  setOb([...ob(),{id:uid(),ts:new Date($('#mtime').value||Date.now()).getTime(),text}]);
-  pend=null;$('#prev').hidden=true;$('#mtxt').value='';$('#hint').value='';$('#mtime').value=toLocal(new Date());
-  if(!cfg().cid)toast('Sparad på telefonen. Ställ in Drive under Inställningar.');
-  else if(!tokOk())toast('Sparad på telefonen. Logga in på Google för att skicka till Drive.');
-  status();flush();
+function sendMail(){
+  const es=unsent(),a=cfg().mail;
+  if(!es.length)return toast('Inget att skicka');
+  if(!a){toast('Lägg in din mejladress under Inställningar');return show('set')}
+  const days=[...new Set(es.map(e=>dkey(e.ts)))].sort(),subj='Matlogg '+days[0]+(days.length>1?' till '+days[days.length-1]:'');
+  const body=mkText(es);markSent();
+  location.href='mailto:'+a+'?subject='+encodeURIComponent(subj)+'&body='+encodeURIComponent(body);
+}
+$('#sendBtn').onclick=sendMail;
+$('#copyBtn').onclick=()=>{const es=unsent();if(!es.length)return;navigator.clipboard.writeText(mkText(es)).then(()=>{markSent();toast('Kopierat. Klistra in där du vill.')},()=>toast('Kunde inte kopiera'))};
+$('#v-snd').onclick=ev=>{
+  const b=ev.target.closest('[data-a]');if(!b)return;const id=b.dataset.id;
+  if(b.dataset.a==='del'){if(confirm('Ta bort måltiden?'))setLg(lg().filter(x=>x.id!==id))}
+  else setLg(lg().map(x=>x.id===id?{...x,sent:0}:x));
+  render();
 };
 
-/* status, inställningar, flikar, start */
-function status(){
-  const q=ob().length,c=cfg(),el=$('#st'),ok=tokOk();
-  el.textContent=(!c.cid?'Drive är inte inställt':ok?'Drive är ansluten':'Du är inte inloggad på Drive')+(q?'. '+q+' väntar på uppladdning':'')+'.';
-  if(c.cid&&!ok){const b=document.createElement('button');b.className='link';b.id='login';b.textContent='Logga in';el.append(' ',b)}
-  el.classList.toggle('warn',!!q||!ok);
+/* spara */
+function saveMeal(){
+  const text=$('#mtxt').value.trim();if(!text||text==='Analyserar…'){toast('Det finns ingen måltidstext att spara');return false}
+  setLg([...lg(),{id:uid(),ts:new Date($('#mtime').value||Date.now()).getTime(),text,sent:0}]);
+  pend=null;$('#prev').hidden=true;$('#mtxt').value='';$('#hint').value='';$('#mtime').value=toLocal(new Date());render();return true;
 }
-$('#st').onclick=e=>{if(e.target.id==='login')startAuth()};
-const FLD=[['mk','s-key'],['mm','s-model'],['mc','s-cid'],['mf','s-folder'],['mn','s-file']];
-$('#saveCfg').onclick=()=>{FLD.forEach(([k,i])=>localStorage[k]=$('#'+i).value.trim());toast('Inställningar sparade');status();flush()};
-$('nav').onclick=ev=>{const b=ev.target.closest('button');if(!b)return;$$('nav button').forEach(x=>x.classList.toggle('on',x===b));$$('.view').forEach(v=>v.hidden=v.id!=='v-'+b.dataset.v);$('main').scrollTop=0};
-document.addEventListener('visibilitychange',()=>{if(!document.hidden){status();flush()}});
-addEventListener('online',()=>flush());
+$('#save').onclick=()=>{if(saveMeal())toast('Sparad. Mejla den från fliken Skicka.')};
+$('#saveSend').onclick=()=>{if(saveMeal())sendMail()};
+
+/* inställningar, flikar, start */
+const FLD=[['mk','s-key'],['mm','s-model'],['ma','s-mail']];
+$('#saveCfg').onclick=()=>{FLD.forEach(([k,i])=>localStorage[k]=$('#'+i).value.trim());toast('Inställningar sparade')};
+const show=v=>{$$('nav button').forEach(x=>x.classList.toggle('on',x.dataset.v===v));$$('.view').forEach(x=>x.hidden=x.id!=='v-'+v);$('main').scrollTop=0};
+$('nav').onclick=ev=>{const b=ev.target.closest('button');if(b)show(b.dataset.v)};
 (function(){
-  const h=new URLSearchParams(location.hash.slice(1));
-  if(h.get('access_token')||h.get('error')){
-    if(h.get('access_token')&&h.get('state')===localStorage.gst){localStorage.gt=h.get('access_token');localStorage.gx=Date.now()+(+h.get('expires_in')||3600)*1e3-12e4;toast('Inloggad på Google')}
-    else toast('Google-inloggningen misslyckades'+(h.get('error')?': '+h.get('error'):''));
-    history.replaceState(null,'',REDIR);
-  }
-  const c=cfg();FLD.forEach(([k,i])=>$('#'+i).value=c[{mk:'key',mm:'model',mc:'cid',mf:'folder',mn:'file'}[k]]);
-  $('#ru').textContent=REDIR;$('#mtime').value=toLocal(new Date());
-  status();flush();
+  ['gt','gx','gst','fi','ob','mc','mf','mn'].forEach(k=>localStorage.removeItem(k)); // rensar gamla Drive-uppgifter
+  const c=cfg();$('#s-key').value=c.key;$('#s-model').value=c.model;$('#s-mail').value=c.mail;
+  setLg(lg().filter(e=>!e.sent||Date.now()-e.sent<12096e5));
+  $('#mtime').value=toLocal(new Date());render();
   if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();
   if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js');
 })();
