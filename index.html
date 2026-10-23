@@ -38,6 +38,9 @@ button.pri{background:var(--meal);border-color:var(--meal);color:var(--on);font-
 #prev[hidden]{display:none}
 .hint{color:var(--mute);font-size:14px;margin:6px 0 12px}
 .hint.err{color:var(--warn);font-weight:600}
+.dr{display:flex;gap:12px;align-items:flex-start;margin-bottom:10px}
+.dr img{width:84px;height:84px;object-fit:cover;border-radius:10px;flex:none}
+.dr .dt{margin:0;flex:1;min-width:0}
 code{word-break:break-all;background:var(--bg);padding:2px 5px;border-radius:6px}
 .link{border:0;background:none;color:var(--meal);min-height:28px;padding:2px 6px;font-weight:600}
 .it{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}.it:last-child{border:0}
@@ -56,17 +59,17 @@ nav .on{color:var(--meal);font-weight:700;box-shadow:inset 0 3px 0 var(--meal)}
 <main>
 <section id="v-log" class="view">
   <div class="card form">
-    <h2>Ny måltid</h2>
-    <label class="photo" for="pic">Ta bild eller välj bild</label>
-    <input type="file" id="pic" accept="image/*" hidden>
-    <img id="prev" alt="" hidden>
-    <label class="lbl" for="mtime">Klockslag</label>
-    <input type="datetime-local" id="mtime">
-    <label class="lbl" for="mtxt">Måltidstext (korrigera vid behov)</label>
-    <textarea id="mtxt" rows="10" placeholder="Analysen hamnar här. Du kan också skriva själv."></textarea>
-    <p class="hint" id="msg"></p>
-    <div class="row"><button id="again">Analysera igen</button><button id="save">Spara</button></div>
-    <button class="pri" id="saveSend" style="width:100%;margin-top:8px">Spara och mejla</button>
+    <h2>Nya måltider</h2>
+    <div class="row"><button class="pri" id="cam">Ta bild</button><button class="pri" id="lib">Bildbibliotek</button></div>
+    <input type="file" id="pic-cam" accept="image/*" capture="environment" hidden>
+    <input type="file" id="pic-lib" accept="image/*" multiple hidden>
+    <p class="hint">I bildbiblioteket kan du markera flera bilder på en gång, till exempel dagens alla måltider.</p>
+    <button class="link" id="blank">Skriv en måltid själv</button>
+  </div>
+  <div id="drafts"></div>
+  <div id="dbar" hidden>
+    <button class="pri" id="saveSend" style="width:100%">Spara och mejla alla</button>
+    <button id="save" style="width:100%;margin-top:8px">Spara alla</button>
   </div>
 </section>
 <section id="v-snd" class="view" hidden>
@@ -133,8 +136,6 @@ async function exifTime(f){
 const shrink=f=>new Promise((ok,no)=>{const u=URL.createObjectURL(f),i=new Image();i.onload=()=>{const k=Math.min(1,1280/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=Math.round(i.width*k);c.height=Math.round(i.height*k);c.getContext('2d').drawImage(i,0,0,c.width,c.height);URL.revokeObjectURL(u);ok(c.toDataURL('image/jpeg',.8))};i.onerror=()=>no(new Error('Kunde inte läsa bilden'));i.src=u});
 
 /* bild/text till måltidstext */
-let pend=null;
-const setMsg=(t,err)=>{const m=$('#msg');m.textContent=t||'';m.classList.toggle('err',!!err)};
 async function ask(content,max){
   const {key,model}=cfg();let r,j;
   try{r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model,max_tokens:max,system:SYS,messages:[{role:'user',content}]})})}
@@ -148,30 +149,53 @@ async function ask(content,max){
   if(!t)throw new Error('AI:n svarade utan text. stop_reason: '+j.stop_reason+(j.stop_reason==='max_tokens'?' (tänkandet tog slut på utrymmet)':'')+'. Svar: '+JSON.stringify(j).slice(0,300));
   return t;
 }
-async function analyze(){
-  const ta=$('#mtxt'),old=ta.value;
-  if(!cfg().key){setMsg('Lägg in din API-nyckel under Inställningar och spara.',1);return toast('API-nyckel saknas')}
-  if(!pend){setMsg('Ta eller välj en bild först.',1);return}
-  ta.value='Analyserar…';ta.disabled=true;setMsg('Skickar bilden till Claude…');
-  try{
-    ta.value=await ask([
-      {type:'image',source:{type:'base64',media_type:'image/jpeg',data:pend.split(',')[1]}},
-      {type:'text',text:'Klockan '+hm(new Date($('#mtime').value||Date.now()))+'. Förpackningarna bredvid måltiden (om några syns) står där för att underlätta för dig att inse vad ingredienserna till måltiden är. '+cfg().hint}
-    ],4096);
-    setMsg('Klart. Kontrollera texten och rätta vid behov.');
-  }catch(x){ta.value=old;setMsg(x.message,1);toast('Analysen misslyckades. Se texten under rutan.')}
-  ta.disabled=false;
+let drafts=[];
+const dEl=id=>document.querySelector(`[data-id="${id}"]`);
+const dOf=el=>drafts.find(d=>d.id===el.closest('[data-id]').dataset.id);
+function paintMsg(d){const e=dEl(d.id);if(!e)return;const m=e.querySelector('.dm');m.textContent=d.msg||'';m.classList.toggle('err',!!d.err);e.querySelector('.dx').disabled=!!d.busy}
+function renderDrafts(){
+  $('#drafts').innerHTML=drafts.map(d=>`<div class="card form" data-id="${d.id}"><div class="dr">${d.img?`<img src="${d.img}" alt="">`:''}<input type="datetime-local" class="dt" value="${toLocal(new Date(d.ts))}"></div><textarea class="dx" rows="5" placeholder="${d.img?'Analysen hamnar här':'Skriv måltiden här'}"></textarea><p class="hint dm"></p><div class="row"><button data-d="again">Analysera igen</button><button data-d="del">Ta bort</button></div></div>`).join('');
+  drafts.forEach(d=>{dEl(d.id).querySelector('.dx').value=d.text;paintMsg(d)});
+  $('#dbar').hidden=!drafts.length;
 }
-$('#pic').onchange=async ev=>{
-  const f=ev.target.files[0];if(!f)return;
+async function analyzeDraft(d){
+  if(d.busy)return;
+  const bad=m=>{d.msg=m;d.err=1;paintMsg(d)};
+  if(!cfg().key){bad('Lägg in din API-nyckel under Inställningar och spara.');return toast('API-nyckel saknas')}
+  if(!d.img)return bad('Ingen bild att analysera. Skriv måltiden själv.');
+  d.busy=1;d.err=0;d.msg='Skickar bilden till Claude…';paintMsg(d);
   try{
-    $('#mtime').value=toLocal(await exifTime(f)||(f.lastModified?new Date(f.lastModified):new Date()));
-    pend=await shrink(f);$('#prev').src=pend;$('#prev').hidden=false;
-    analyze();
-  }catch(x){toast(x.message)}
-  ev.target.value='';
+    d.text=await ask([
+      {type:'image',source:{type:'base64',media_type:'image/jpeg',data:d.img.split(',')[1]}},
+      {type:'text',text:'Klockan '+hm(d.ts)+'. Förpackningarna bredvid måltiden (om några syns) står där för att underlätta för dig att inse vad ingredienserna till måltiden är. '+cfg().hint}
+    ],4096);
+    d.msg='Klart. Kontrollera texten och rätta vid behov.';
+  }catch(x){d.msg=x.message;d.err=1;toast('Analysen misslyckades. Se texten under rutan.')}
+  d.busy=0;
+  const e=dEl(d.id);if(e){e.querySelector('.dx').value=d.text;paintMsg(d)}
+}
+async function addFiles(files){
+  const nd=[];
+  for(const f of files){
+    try{
+      const t=await exifTime(f)||(f.lastModified?new Date(f.lastModified):new Date());
+      nd.push({id:uid(),ts:t.getTime(),img:await shrink(f),text:'',msg:'I kö…'});
+    }catch(x){toast(x.message)}
+  }
+  if(!nd.length)return;
+  drafts=[...drafts,...nd].sort((a,b)=>a.ts-b.ts);renderDrafts();
+  for(const d of nd)await analyzeDraft(d);
+}
+['cam','lib'].forEach(k=>{
+  $('#'+k).onclick=()=>$('#pic-'+k).click();
+  $('#pic-'+k).onchange=ev=>{const fs=[...ev.target.files];ev.target.value='';addFiles(fs)};
+});
+$('#blank').onclick=()=>{drafts.push({id:uid(),ts:Date.now(),img:null,text:'',msg:''});renderDrafts()};
+$('#drafts').oninput=ev=>{const t=ev.target,d=dOf(t);if(!d)return;if(t.classList.contains('dx'))d.text=t.value;else if(t.classList.contains('dt'))d.ts=new Date(t.value||Date.now()).getTime()};
+$('#drafts').onclick=ev=>{
+  const b=ev.target.closest('[data-d]');if(!b)return;const d=dOf(b);
+  if(b.dataset.d==='del'){drafts=drafts.filter(x=>x!==d);renderDrafts()}else analyzeDraft(d);
 };
-$('#again').onclick=analyze;
 
 /* lista och mejl */
 const esc=t=>String(t).replace(/[&<>"']/g,c=>'&#'+c.charCodeAt(0)+';');
@@ -210,13 +234,15 @@ $('#v-snd').onclick=ev=>{
 };
 
 /* spara */
-function saveMeal(){
-  const text=$('#mtxt').value.trim();if(!text||text==='Analyserar…'){toast('Det finns ingen måltidstext att spara');return false}
-  setLg([...lg(),{id:uid(),ts:new Date($('#mtime').value||Date.now()).getTime(),text,sent:0}]);
-  pend=null;$('#prev').hidden=true;$('#mtxt').value='';$('#mtime').value=toLocal(new Date());render();return true;
+function saveAll(){
+  if(drafts.some(d=>d.busy)){toast('Vänta tills analysen är klar');return false}
+  const ok=drafts.filter(d=>d.text.trim());
+  if(!ok.length){toast('Det finns ingen måltidstext att spara');return false}
+  setLg([...lg(),...ok.map(d=>({id:uid(),ts:d.ts,text:d.text.trim(),sent:0}))]);
+  drafts=drafts.filter(d=>!ok.includes(d));renderDrafts();render();return true;
 }
-$('#save').onclick=()=>{if(saveMeal())toast('Sparad. Mejla den från fliken Skicka.')};
-$('#saveSend').onclick=()=>{if(saveMeal())sendMail()};
+$('#save').onclick=()=>{if(saveAll())toast('Sparat. Mejla från fliken Skicka.')};
+$('#saveSend').onclick=()=>{if(saveAll())sendMail()};
 
 /* inställningar, flikar, start */
 const FLD=[['mk','s-key'],['mm','s-model'],['ma','s-mail'],['mh','s-hint']];
@@ -234,7 +260,7 @@ $('nav').onclick=ev=>{const b=ev.target.closest('button');if(b)show(b.dataset.v)
   ['gt','gx','gst','fi','ob','mc','mf','mn'].forEach(k=>localStorage.removeItem(k)); // rensar gamla Drive-uppgifter
   const c=cfg();$('#s-key').value=c.key;$('#s-model').value=c.model;$('#s-mail').value=c.mail;$('#s-hint').value=c.hint;
   setLg(lg().filter(e=>!e.sent||Date.now()-e.sent<12096e5));
-  $('#mtime').value=toLocal(new Date());render();
+  renderDrafts();render();
   if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();
   if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js');
 })();
