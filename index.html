@@ -37,6 +37,7 @@ button.pri{background:var(--meal);border-color:var(--meal);color:var(--on);font-
 #prev{display:block;width:100%;max-height:220px;object-fit:cover;border-radius:10px;margin-bottom:10px}
 #prev[hidden]{display:none}
 .hint{color:var(--mute);font-size:14px;margin:6px 0 12px}
+.hint.err{color:var(--warn);font-weight:600}
 code{word-break:break-all;background:var(--bg);padding:2px 5px;border-radius:6px}
 .link{border:0;background:none;color:var(--meal);min-height:28px;padding:2px 6px;font-weight:600}
 .it{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}.it:last-child{border:0}
@@ -59,11 +60,11 @@ nav .on{color:var(--meal);font-weight:700;box-shadow:inset 0 3px 0 var(--meal)}
     <label class="photo" for="pic">Ta bild eller välj bild</label>
     <input type="file" id="pic" accept="image/*" hidden>
     <img id="prev" alt="" hidden>
-    <input type="text" id="hint" placeholder="Kommentar till AI:n (valfritt)" autocomplete="off">
     <label class="lbl" for="mtime">Klockslag</label>
     <input type="datetime-local" id="mtime">
     <label class="lbl" for="mtxt">Måltidstext (korrigera vid behov)</label>
     <textarea id="mtxt" rows="10" placeholder="Analysen hamnar här. Du kan också skriva själv."></textarea>
+    <p class="hint" id="msg"></p>
     <div class="row"><button id="again">Analysera igen</button><button id="save">Spara</button></div>
     <button class="pri" id="saveSend" style="width:100%;margin-top:8px">Spara och mejla</button>
   </div>
@@ -82,6 +83,10 @@ nav .on{color:var(--meal);font-weight:700;box-shadow:inset 0 3px 0 var(--meal)}
     <h2>Claude</h2>
     <input type="password" id="s-key" placeholder="Anthropic API-nyckel (sk-ant-…)" autocomplete="off">
     <input type="text" id="s-model" placeholder="Modell" autocomplete="off">
+    <label class="lbl" for="s-hint">Instruktion till AI:n om måltiden</label>
+    <textarea id="s-hint" rows="5"></textarea>
+    <div class="row"><button id="hintReset">Standardtext</button><button id="test">Testa anslutning</button></div>
+    <p class="hint" id="tmsg"></p>
   </div>
   <div class="card">
     <h2>Mejl</h2>
@@ -94,9 +99,9 @@ nav .on{color:var(--meal);font-weight:700;box-shadow:inset 0 3px 0 var(--meal)}
 <nav><button data-v="log" class="on">Ny måltid</button><button data-v="snd">Skicka</button><button data-v="set">Inställningar</button></nav>
 <script>
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
-const DEF='claude-haiku-5-5',G='https://www.googleapis.com/';
+const DEFHINT='Vilka ingredienser innehåller måltiden. Skriv dem på formatet (exempel): Tallrik med yoghurt, havregrynsgröt, blåbär... kopp med kaffe och mjölk.',DEF='claude-haiku-5-5',G='https://www.googleapis.com/';
 const REDIR=location.origin+location.pathname.replace(/[^/]*$/,'');
-const cfg=()=>({key:localStorage.mk||'',model:localStorage.mm||DEF,mail:localStorage.ma||''});
+const cfg=()=>({key:localStorage.mk||'',model:localStorage.mm||DEF,hint:localStorage.mh||DEFHINT,mail:localStorage.ma||''});
 const lg=()=>JSON.parse(localStorage.lg||'[]'),setLg=a=>localStorage.lg=JSON.stringify(a);
 const pad=n=>String(n).padStart(2,'0');
 const toLocal=d=>new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,16);
@@ -105,15 +110,7 @@ const hm=t=>{const d=new Date(t);return pad(d.getHours())+':'+pad(d.getMinutes()
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 let tt;const toast=m=>{const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('show'),3500)};
 
-const SYS=`Du hjälper en person som för mat- och magdagbok. Omvandla bilden och/eller texten av en måltid till en kort, tydlig beskrivning på svenska.
-Ibland står förpackningar bredvid måltiden för att underlätta för dig att förstå vilka ingredienserna är. Läs etiketter och ingredienslistor på dem när de syns och använd dem för att avgöra ingredienserna. Förpackningarna är inte själva måltiden.
-Svara ENBART med texten i exakt detta format, utan inledning och utan kodstaket:
-<rättens namn>
-- <ingrediens> <grov mängd>
-(en rad per ingrediens)
-Taggar: <valda taggar, eller "inga">
-Osäkert: <kort om dolda eller osäkra ingredienser som olja, sås, kryddor, eller "inget">
-Taggar väljs ENBART bland: lök, vitlök, baljväxter, kål, laktos, vete/gluten, fruktos, polyoler, sötningsmedel, kolsyra, fet mat, stark mat, alkohol, koffein, mycket fibrer. Mängder är grova uppskattningar. Om personens kommentar motsäger bilden, lita på kommentaren.`;
+const SYS='Du hjälper en person som för mat- och magdagbok genom att omvandla bilder av måltider till text på svenska. Ibland står förpackningar bredvid måltiden för att underlätta för dig att förstå vilka ingredienserna är. Läs etiketter och ingredienslistor på dem när de syns och använd dem. Förpackningarna är inte själva måltiden. Följ personens instruktion om innehåll och format. Svara ENBART med själva texten, utan inledning, förklaringar eller kodstaket.';
 
 /* foto: klockslag ur EXIF, förminskning */
 async function exifTime(f){
@@ -137,19 +134,32 @@ const shrink=f=>new Promise((ok,no)=>{const u=URL.createObjectURL(f),i=new Image
 
 /* bild/text till måltidstext */
 let pend=null;
+const setMsg=(t,err)=>{const m=$('#msg');m.textContent=t||'';m.classList.toggle('err',!!err)};
+async function ask(content,max){
+  const {key,model}=cfg();let r,j;
+  try{r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model,max_tokens:max,system:SYS,messages:[{role:'user',content}]})})}
+  catch(x){throw new Error('Ingen kontakt med Anthropic. Kontrollera uppkopplingen och försök igen.')}
+  try{j=await r.json()}catch(x){throw new Error('Oväntat svar från Anthropic (HTTP '+r.status+').')}
+  if(!r.ok){
+    const m=j.error&&j.error.message||'';
+    throw new Error(r.status===401?'API-nyckeln avvisades. Kontrollera nyckeln under Inställningar.':r.status===404?'Modellen "'+model+'" hittades inte. Ändra modell under Inställningar.':r.status===429?'För många anrop just nu. Vänta en stund och försök igen.':/credit/i.test(m)?'Saldot hos Anthropic räcker inte. Fyll på under Billing och vänta någon minut. ('+m+')':'Anthropic svarade '+r.status+(m?': '+m:''));
+  }
+  const t=(j.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('').trim();
+  if(!t)throw new Error('AI:n svarade utan text. stop_reason: '+j.stop_reason+(j.stop_reason==='max_tokens'?' (tänkandet tog slut på utrymmet)':'')+'. Svar: '+JSON.stringify(j).slice(0,300));
+  return t;
+}
 async function analyze(){
-  const {key,model}=cfg(),hint=$('#hint').value.trim(),ta=$('#mtxt'),old=ta.value;
-  if(!key)return toast('Lägg in API-nyckel under Inställningar');
-  if(!pend&&!hint)return toast('Lägg till en bild eller en kommentar först');
-  ta.value='Analyserar…';ta.disabled=true;
+  const ta=$('#mtxt'),old=ta.value;
+  if(!cfg().key){setMsg('Lägg in din API-nyckel under Inställningar och spara.',1);return toast('API-nyckel saknas')}
+  if(!pend){setMsg('Ta eller välj en bild först.',1);return}
+  ta.value='Analyserar…';ta.disabled=true;setMsg('Skickar bilden till Claude…');
   try{
-    const c=[];
-    if(pend)c.push({type:'image',source:{type:'base64',media_type:'image/jpeg',data:pend.split(',')[1]}});
-    c.push({type:'text',text:'Klockan '+hm(new Date($('#mtime').value||Date.now()))+'. Förpackningarna bredvid måltiden (om några syns) står där för att underlätta för dig att inse vad ingredienserna till måltiden är.'+(hint?' Personens kommentar: '+hint:'')});
-    const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model,max_tokens:700,system:SYS,messages:[{role:'user',content:c}]})});
-    const j=await r.json();if(!r.ok)throw new Error(j.error&&j.error.message||'HTTP '+r.status);
-    ta.value=j.content.filter(b=>b.type==='text').map(b=>b.text).join('').trim();
-  }catch(x){ta.value=old;toast('Analysen misslyckades: '+(x.message||x)+'. Tryck "Analysera igen".')}
+    ta.value=await ask([
+      {type:'image',source:{type:'base64',media_type:'image/jpeg',data:pend.split(',')[1]}},
+      {type:'text',text:'Klockan '+hm(new Date($('#mtime').value||Date.now()))+'. Förpackningarna bredvid måltiden (om några syns) står där för att underlätta för dig att inse vad ingredienserna till måltiden är. '+cfg().hint}
+    ],4096);
+    setMsg('Klart. Kontrollera texten och rätta vid behov.');
+  }catch(x){ta.value=old;setMsg(x.message,1);toast('Analysen misslyckades. Se texten under rutan.')}
   ta.disabled=false;
 }
 $('#pic').onchange=async ev=>{
@@ -203,19 +213,26 @@ $('#v-snd').onclick=ev=>{
 function saveMeal(){
   const text=$('#mtxt').value.trim();if(!text||text==='Analyserar…'){toast('Det finns ingen måltidstext att spara');return false}
   setLg([...lg(),{id:uid(),ts:new Date($('#mtime').value||Date.now()).getTime(),text,sent:0}]);
-  pend=null;$('#prev').hidden=true;$('#mtxt').value='';$('#hint').value='';$('#mtime').value=toLocal(new Date());render();return true;
+  pend=null;$('#prev').hidden=true;$('#mtxt').value='';$('#mtime').value=toLocal(new Date());render();return true;
 }
 $('#save').onclick=()=>{if(saveMeal())toast('Sparad. Mejla den från fliken Skicka.')};
 $('#saveSend').onclick=()=>{if(saveMeal())sendMail()};
 
 /* inställningar, flikar, start */
-const FLD=[['mk','s-key'],['mm','s-model'],['ma','s-mail']];
-$('#saveCfg').onclick=()=>{FLD.forEach(([k,i])=>localStorage[k]=$('#'+i).value.trim());toast('Inställningar sparade')};
+const FLD=[['mk','s-key'],['mm','s-model'],['ma','s-mail'],['mh','s-hint']];
+const saveCfg=()=>FLD.forEach(([k,i])=>localStorage[k]=$('#'+i).value.trim());
+$('#saveCfg').onclick=()=>{saveCfg();toast('Inställningar sparade')};
+$('#hintReset').onclick=()=>{$('#s-hint').value=DEFHINT};
+$('#test').onclick=async()=>{
+  const t=$('#tmsg');saveCfg();t.classList.remove('err');t.textContent='Testar anslutningen…';
+  try{t.textContent='Fungerar. Claude svarade: '+await ask([{type:'text',text:'Svara med exakt ordet: fungerar'}],1024)}
+  catch(x){t.textContent=x.message;t.classList.add('err')}
+};
 const show=v=>{$$('nav button').forEach(x=>x.classList.toggle('on',x.dataset.v===v));$$('.view').forEach(x=>x.hidden=x.id!=='v-'+v);$('main').scrollTop=0};
 $('nav').onclick=ev=>{const b=ev.target.closest('button');if(b)show(b.dataset.v)};
 (function(){
   ['gt','gx','gst','fi','ob','mc','mf','mn'].forEach(k=>localStorage.removeItem(k)); // rensar gamla Drive-uppgifter
-  const c=cfg();$('#s-key').value=c.key;$('#s-model').value=c.model;$('#s-mail').value=c.mail;
+  const c=cfg();$('#s-key').value=c.key;$('#s-model').value=c.model;$('#s-mail').value=c.mail;$('#s-hint').value=c.hint;
   setLg(lg().filter(e=>!e.sent||Date.now()-e.sent<12096e5));
   $('#mtime').value=toLocal(new Date());render();
   if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();
